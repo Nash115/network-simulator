@@ -1,6 +1,14 @@
+use crate::colors::Colors;
+
 #[derive(Clone)]
 pub enum IP {
     V4(u8, u8, u8, u8)
+}
+
+impl std::fmt::Display for IP {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}{}", Colors::BRIGHT_BLUE, self.to_ddn(), Colors::RESET)
+    }
 }
 
 pub enum IpError {
@@ -21,6 +29,18 @@ impl IP {
             }
         }
         Some(IP::V4(octets[0], octets[1], octets[2], octets[3]))
+    }
+
+    pub fn from_cidr(cidr: u8) -> IP {
+        let mut mask: u32 = 0;
+        for i in 0..cidr {
+            mask |= 1 << (31 - i);
+        }
+        let a = ((mask >> 24) & 0xFF) as u8;
+        let b = ((mask >> 16) & 0xFF) as u8;
+        let c = ((mask >> 8) & 0xFF) as u8;
+        let d = (mask & 0xFF) as u8;
+        IP::V4(a, b, c, d)
     }
 
     pub fn to_ddn(&self) -> String {

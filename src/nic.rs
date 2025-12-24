@@ -1,3 +1,4 @@
+use crate::colors::Colors;
 use crate::ip::IP;
 use crate::mac::MAC;
 
@@ -7,6 +8,12 @@ pub struct NIC {
     pub ip: IP,
     pub netmask: IP,
     pub mac: MAC
+}
+
+impl std::fmt::Display for NIC {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}/{}{} - {}", self.ip, Colors::CYAN, self.netmask_u8(), Colors::RESET, self.mac)
+    }
 }
 
 impl NIC {
@@ -45,10 +52,6 @@ impl NIC {
             }
         }
         return cpt;
-    }
-
-    pub fn cidr(&self) -> String {
-        format!("{}/{}", self.ip.to_ddn(), self.netmask_u8())
     }
 
     pub fn total_addressable_ips(&self) -> i32 {

@@ -1,9 +1,16 @@
 use rand::Rng;
 
+use crate::colors::Colors;
 
 #[derive(Clone)]
 pub enum MAC {
     EUI48(u8, u8, u8, u8, u8, u8)
+}
+
+impl std::fmt::Display for MAC {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}{}", Colors::BRIGHT_MAGENTA, self.to_hex(), Colors::RESET)
+    }
 }
 
 impl MAC {

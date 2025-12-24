@@ -3,7 +3,7 @@ use crate::dhcp::DhcpError;
 use crate::ip::IP;
 use crate::mac::MAC;
 use crate::nic::NIC;
-use crate::router::Router;
+use crate::router::{Router, RouterInterface};
 
 
 #[derive(Clone)]
@@ -24,7 +24,7 @@ impl std::fmt::Display for NodeType {
 pub enum GraphError {
     AlreadyExistingMacAddress,
     ConnectionAlreadyExists,
-    MaxConnectionReached(String),
+    MaxConnectionReached(MAC),
     ConnectionNotPossible
 }
 
@@ -58,10 +58,11 @@ impl Graph {
     }
 
     pub fn append_router(&mut self, router: Router) -> Result<(), GraphError> {
-        if self.node_type_with_mac(router.nic.mac.clone()).is_some() {
+        if self.node_type_with_mac(router.nic_lan.mac.clone()).is_some() || self.node_type_with_mac(router.nic_wan.mac.clone()).is_some() {
             return Err(GraphError::AlreadyExistingMacAddress);
         }
-        self.nodes.push((router.nic.mac.clone(), NodeType::Router));
+        self.nodes.push((router.nic_lan.mac.clone(), NodeType::Router));
+        self.nodes.push((router.nic_wan.mac.clone(), NodeType::Router));
         self.routers.push(router);
         Ok(())
     }
@@ -81,8 +82,22 @@ impl Graph {
         }
         for mac in &[nic1.mac.clone(), nic2.mac.clone()] {
             let connections = self.connections(mac.clone());
-            if connections.len() >= 1 {
-                return Err(GraphError::MaxConnectionReached(mac.to_hex()));
+            let node_t = self.node_type_with_mac(mac.clone());
+            if let Some(t) = node_t {
+                match t {
+                    NodeType::Device => {
+                        if connections.len() >= 1 {
+                            return Err(GraphError::MaxConnectionReached(mac.clone()));
+                        }
+                    },
+                    NodeType::Router => {
+                        if connections.len() >= 2 {
+                            return Err(GraphError::MaxConnectionReached(mac.clone()));
+                        }
+                    }
+                }
+            } else {
+                return Err(GraphError::ConnectionNotPossible);
             }
         }
         if !nic1.same_network(nic2.clone()) {
@@ -92,24 +107,32 @@ impl Graph {
         Ok(())
     }
 
+    pub fn append_internal_router_connection(&mut self, mac_lan: MAC, mac_wan: MAC) -> Result<(), GraphError> {
+        if self.are_connected(mac_lan.clone(), mac_wan.clone()) {
+            return Err(GraphError::ConnectionAlreadyExists);
+        }
+        self.connections.push((mac_lan.clone(), mac_wan.clone()));
+        Ok(())
+    }
+
     pub fn show(&self) {
         println!("--- Network Graph ---");
         println!("Nodes:");
         for (mac, device_type) in &self.nodes {
-            println!("- {} ({})", mac.to_hex(), device_type);
+            println!("- {} ({})", mac, device_type);
         }
         println!("Connections:");
         for (mac1, mac2) in &self.connections {
-            println!("- {} <-> {}", mac1.to_hex(), mac2.to_hex());
+            println!("- {} <-> {}", mac1, mac2);
         }
 
         println!("\n--- Routers ---");
         for router in &self.routers {
-            router.status();
+            println!("{}", router);
         }
         println!("\n--- Devices ---");
         for device in &self.devices {
-            device.status();
+            println!("{}", device);
         }
     }
 
@@ -179,7 +202,10 @@ impl Graph {
                 },
                 Some(NodeType::Router) => {
                     for router in &self.routers {
-                        if router.nic.mac == mac && router.nic.ip == ip {
+                        if router.nic_lan.mac == mac && router.nic_lan.ip == ip {
+                            return true;
+                        }
+                        if router.nic_wan.mac == mac && router.nic_wan.ip == ip {
                             return true;
                         }
                     }
@@ -194,12 +220,21 @@ impl Graph {
         let mut last_dhcp_error: DhcpError = DhcpError::NoDHCPServerFound;
         let accessibles = self.breadth_first_search(nic_dest.mac.clone());
         for mac in accessibles {
-            let router_idx = self.routers.iter().position(|r| r.nic.mac == mac);
+            let router_idx = self.routers.iter().position(|r| (r.nic_lan.mac == mac) || (r.nic_wan.mac == mac));
             if let Some(idx) = router_idx {
-                if self.routers[idx].dhcp.is_some() {
-                    let netmask = self.routers[idx].dhcp.as_ref().unwrap().netmask.clone();
+                let interface: RouterInterface = if self.routers[idx].nic_lan.mac == mac {
+                    RouterInterface::LAN
+                } else {
+                    RouterInterface::WAN
+                };
+                let dhcp = match interface {
+                    RouterInterface::LAN => &self.routers[idx].dhcp_lan,
+                    RouterInterface::WAN => &self.routers[idx].dhcp_wan,
+                };
+                if dhcp.is_some() {
+                    let netmask = dhcp.as_ref().unwrap().netmask.clone();
                     let tmp_graph = self.clone();
-                    let ip_r = self.routers[idx].get_next_dhcp_ip(&tmp_graph);
+                    let ip_r = self.routers[idx].get_next_dhcp_ip(&tmp_graph, interface);
                     match ip_r {
                         Ok(ip) => {
                             nic_src.ip = ip.clone();
@@ -225,10 +260,13 @@ impl Graph {
         None
     }
 
-    fn search_router_with_mac(&self, mac: MAC) -> Option<Router> {
+    fn search_router_with_mac(&self, mac: MAC) -> Option<(Router, RouterInterface)> {
         for router in &self.routers {
-            if router.nic.mac == mac {
-                return Some(router.clone());
+            if router.nic_lan.mac == mac {
+                return Some((router.clone(), RouterInterface::LAN));
+            }
+            if router.nic_wan.mac == mac {
+                return Some((router.clone(), RouterInterface::WAN));
             }
         }
         None
@@ -248,7 +286,12 @@ impl Graph {
             Some(NodeType::Router) => {
                 let router = self.search_router_with_mac(mac.clone());
                 match router {
-                    Some(r) => Some(r.nic.clone()),
+                    Some((r,i)) => {Some(
+                        match i {
+                            RouterInterface::LAN => r.nic_lan.clone(),
+                            RouterInterface::WAN => r.nic_wan.clone(),
+                        }
+                    )},
                     None => None
                 }
             },
@@ -267,8 +310,12 @@ impl Graph {
         match self.node_type_with_mac(mac.clone()) {
             Some(NodeType::Router) => {
                 for router in &mut self.routers {
-                    if router.nic.mac == mac {
-                        router.nic = new_nic;
+                    if router.nic_lan.mac == mac {
+                        router.nic_lan = new_nic;
+                        return Ok(());
+                    }
+                    if router.nic_wan.mac == mac {
+                        router.nic_wan = new_nic;
                         return Ok(());
                     }
                 }

@@ -9,6 +9,12 @@ pub struct Device {
     pub nic: NIC
 }
 
+impl std::fmt::Display for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DEVICE {} [{}]", self.name, self.nic)
+    }
+}
+
 impl Device {
     fn new(name: String) -> Self {
         Self {
@@ -18,10 +24,6 @@ impl Device {
                 IP::V4(255, 0, 0, 0),
             )
         }
-    }
-
-    pub fn status(&self) {
-        println!("DEVICE {} - {} - {}", self.name, self.nic.cidr(), self.nic.mac.to_hex());
     }
 }
 

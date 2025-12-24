@@ -1,7 +1,11 @@
 use std::io::{self, Write};
 
+use crate::commands::ping;
+use crate::device::create_device;
+use crate::graph::Graph;
 use crate::ip::IP;
 use crate::mac::MAC;
+use crate::router::{create_router, RouterInterface};
 
 
 pub enum HciError {
@@ -20,6 +24,10 @@ impl std::fmt::Display for HciError {
     }
 }
 
+pub fn clear_screen() {
+    print!("\x1B[2J\x1B[1;1H");
+}
+
 pub fn get_input(prompt: &str) -> Result<String, HciError> {
     print!("{}", prompt);
     let _ = io::stdout().flush();
@@ -27,6 +35,23 @@ pub fn get_input(prompt: &str) -> Result<String, HciError> {
     match io::stdin().read_line(&mut s) {
         Ok(_) => Ok(s.trim().to_string()),
         Err(_) => Err(HciError::ErrorReadingStdin),
+    }
+}
+
+pub fn prompt_confirmation(prompt: &str) -> Result<bool, HciError> {
+    loop {
+        match get_input(format!("{} (y/n): ", prompt).as_str()) {
+            Ok(input) => {
+                match input.to_lowercase().as_str() {
+                    "y" | "yes" => return Ok(true),
+                    "n" | "no" => return Ok(false),
+                    _ => {
+                        println!("Please enter 'y' or 'n'.");
+                    }
+                }
+            }
+            Err(e) => return Err(e),
+        }
     }
 }
 
@@ -111,4 +136,209 @@ pub fn menu() -> MenuOptions {
             return MenuOptions::Nothing;
         }
     }
+}
+
+
+pub fn create_nic_router_interactive(interface: RouterInterface) -> Option<(IP, IP)> {
+    let ip = match prompt_ip(&format!("Enter IP address for interface {}: ", interface)) {
+        Ok(ip) => ip,
+        Err(e) => {
+            println!("Error reading IP address: {}", e);
+            return None;
+        }
+    };
+    let netmask_cidr = match prompt_u8(&format!("Enter netmask (CIDR notation) for interface {}: ", interface)) {
+        Ok(n) => n,
+        Err(e) => {
+            println!("Error reading netmask: {}", e);
+            return None;
+        }
+    };
+    let netmask = IP::from_cidr(netmask_cidr);
+    Some((ip, netmask))
+}
+
+pub fn create_dhcp_router_interactive(interface: RouterInterface) -> Option<(Option<IP>, Option<IP>)> {
+    let dhcp: bool = match prompt_confirmation(&format!("Enable DHCP on interface {}?", interface)) {
+        Ok(ans) => ans,
+        Err(e) => {
+            println!("Error reading input: {}", e);
+            return None;
+        }
+    };
+    if dhcp {
+        let first_ip = match prompt_ip(&format!("Enter first DHCP IP for interface {}: ", interface)) {
+            Ok(ip) => ip,
+            Err(e) => {
+                println!("Error reading IP address: {}", e);
+                return None;
+            }
+        };
+        let last_ip = match prompt_ip(&format!("Enter last DHCP IP for interface {}: ", interface)) {
+            Ok(ip) => ip,
+            Err(e) => {
+                println!("Error reading IP address: {}", e);
+                return None;
+            }
+        };
+        Some((Some(first_ip), Some(last_ip)))
+    } else {
+        Some((None, None))
+    }
+}
+
+pub fn create_router_interactive(graph: &mut Graph) -> bool {
+    let name: String = match get_input("Enter the router name: ") {
+        Ok(n) => n,
+        Err(e) => {
+            let default_name = "Unnamed Router".to_string();
+            println!("Error reading name ({}). Using default name '{}'.", e, default_name);
+            default_name
+        }
+    };
+
+    // NIC LAN
+    let (ip_lan, netmask_lan) = match create_nic_router_interactive(RouterInterface::LAN) {
+        Some((ip, netmask)) => (ip, netmask),
+        None => { return false; }
+    };
+
+    // NIC WAN
+    let (ip_wan, netmask_wan) = match create_nic_router_interactive(RouterInterface::WAN) {
+        Some((ip, netmask)) => (ip, netmask),
+        None => { return false; }
+    };
+
+    // DHCP LAN
+    let (dhcp_lan_first_ip, dhcp_lan_last_ip) = match create_dhcp_router_interactive(RouterInterface::LAN) {
+        Some((first_ip, last_ip)) => (first_ip, last_ip),
+        None => { return false; }
+    };
+
+    // DHCP WAN
+    let (dhcp_wan_first_ip, dhcp_wan_last_ip) = match create_dhcp_router_interactive(RouterInterface::WAN) {
+        Some((first_ip, last_ip)) => (first_ip, last_ip),
+        None => { return false; }
+    };
+
+    // Create the router
+    match create_router(
+        name, graph,
+        ip_lan, netmask_lan, ip_wan, netmask_wan,
+        dhcp_lan_first_ip, dhcp_lan_last_ip,
+        dhcp_wan_first_ip, dhcp_wan_last_ip
+    ) {
+        Ok(_) => return true,
+        Err(e) => println!("Error creating router: {}", e),
+    }
+    return false;
+}
+
+pub fn create_device_interactive(graph: &mut Graph) -> bool {
+    let name: String = match get_input("Enter the device name: ") {
+        Ok(n) => n,
+        Err(e) => {
+            let default_name = "Unnamed Device".to_string();
+            println!("Error reading name ({}). Using default name '{}'.", e, default_name);
+            default_name
+        }
+    };
+    match create_device(name, graph) {
+        Ok(_) => return true,
+        Err(e) => println!("Error creating device: {}", e),
+    }
+    return false;
+}
+
+pub fn connection_interactive(graph: &mut Graph) -> bool {
+    let mac_src = match prompt_mac("Enter the MAC address of the device to connect: ") {
+        Ok(mac) => mac,
+        Err(e) => {
+            println!("Error reading MAC address: {}", e);
+            return false;
+        }
+    };
+    let mac_dest = match prompt_mac("Enter the MAC address of the device to connect to: ") {
+        Ok(mac) => mac,
+        Err(e) => {
+            println!("Error reading MAC address: {}", e);
+            return false;
+        }
+    };
+    let mut nic_src = match graph.nic_with_mac(mac_src.clone()) {
+        Some(nic) => nic,
+        None => {
+            println!("Device with MAC address '{}' not found.", mac_src);
+            return false;
+        }
+    };
+    let nic_src_original = nic_src.clone();
+    let nic_dest = match graph.nic_with_mac(mac_dest.clone()) {
+        Some(nic) => nic,
+        None => {
+            println!("Device with MAC address '{}' not found.", mac_dest);
+            return false;
+        }
+    };
+    if !nic_src.same_network(nic_dest.clone()) {
+        if graph.connections(nic_src.mac.clone()).is_empty() {
+            nic_src.set_localhost();
+        }
+        if !nic_src.is_localhost() {
+            println!("Devices are not on the same network and {} could not connect to the network.", nic_src.mac);
+            return false;
+        }
+        match graph.breadth_first_search_and_dhcp_connection(&mut nic_src, &nic_dest) {
+            Ok(ip) => {
+                println!("DHCP attribution succeed : {}", ip);
+                if let Err(e) = graph.update_nic(mac_src.clone(), nic_src.clone()) {
+                    println!("Error updating NIC: {}", e);
+                    return false;
+                }
+            }
+            Err(e) => {
+                println!("Error during DHCP attribution : {}", e);
+                return false;
+            }
+        }
+    }
+    match graph.append_connection(nic_src, nic_dest) {
+        Ok(_) => return true,
+        Err(e) => {
+            println!("Error connecting devices: {}", e);
+            match graph.update_nic(mac_src.clone(), nic_src_original.clone()) {
+                Ok(_) => {},
+                Err(e) => println!("Additionally, error reverting NIC changes: {}", e),
+            }
+        }
+    }
+    return false;
+}
+
+pub fn ping_interactive(graph: &Graph) -> bool {
+    let source_mac = match prompt_mac("Enter the MAC address of the source device: ") {
+        Ok(mac) => mac,
+        Err(e) => {
+            println!("Error reading MAC address: {}", e);
+            return false;
+        }
+    };
+    let destination_ip = match prompt_ip("Enter the destination IP address: ") {
+        Ok(ip) => ip,
+        Err(e) => {
+            println!("Error reading IP address: {}", e);
+            return false;
+        }
+    };
+    match graph.nic_with_mac(source_mac.clone()) {
+        Some(nic) => {
+            let status = ping(&graph, nic, destination_ip);
+            println!("Ping status: {}", status);
+            return true;
+        },
+        None => {
+            println!("Device with MAC address '{}' not found.", source_mac);
+            return false;
+        }
+    };
 }

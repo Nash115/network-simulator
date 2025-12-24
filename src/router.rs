@@ -8,55 +8,77 @@ use crate::nic::NIC;
 #[derive(Clone)]
 pub struct Router {
     name: String,
-    pub nic: NIC,
-    pub dhcp: Option<DHCP>,
+    pub nic_lan: NIC,
+    pub nic_wan: NIC,
+    pub dhcp_lan: Option<DHCP>,
+    pub dhcp_wan: Option<DHCP>,
+}
+
+impl std::fmt::Display for Router {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ROUTER {} - LAN:[{}] WAN:[{}]\n\tDHCP LAN -> {}\n\tDHCP WAN -> {}",
+            self.name, self.nic_lan, self.nic_wan,
+            match &self.dhcp_lan {
+                Some(dhcp) => format!(" Enabled : {} > {}", dhcp.first_ip, dhcp.last_ip),
+                None => "Disabled".to_string(),
+            },
+            match &self.dhcp_wan {
+                Some(dhcp) => format!(" Enabled : {} > {}", dhcp.first_ip, dhcp.last_ip),
+                None => "Disabled".to_string(),
+            }
+        )
+    }
+}
+
+pub enum RouterInterface {LAN,WAN}
+
+impl std::fmt::Display for RouterInterface {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RouterInterface::LAN => write!(f, "LAN"),
+            RouterInterface::WAN => write!(f, "WAN"),
+        }
+    }
 }
 
 impl Router {
-    fn new(name: String) -> Self {
-        let nic: NIC = NIC::new(
-            IP::V4(192, 168, 1, 1),
-            IP::V4(255, 255, 255, 0)
-        );
-        let dhcp_result = DHCP::new(
-            nic.clone(),
-            IP::V4(192, 168, 1, 10),
-            IP::V4(192, 168, 1, 100)
-        );
-        match dhcp_result {
-            Ok(dhcp) => {
-                Self {
-                    name: name.clone(),
-                    nic: nic.clone(),
-                    dhcp: Some(dhcp)
+    fn new( name: String,
+            ip_lan:IP, netmask_lan:IP, ip_wan:IP, netmask_wan:IP,
+            dhcp_lan_first_ip: Option<IP>, dhcp_lan_last_ip: Option<IP>,
+            dhcp_wan_first_ip: Option<IP>, dhcp_wan_last_ip: Option<IP>) -> Self {
+        let nic_lan: NIC = NIC::new(ip_lan, netmask_lan);
+        let nic_wan: NIC = NIC::new(ip_wan, netmask_wan);
+        let dhcp_lan: Option<DHCP> = match (dhcp_lan_first_ip, dhcp_lan_last_ip) {
+            (Some(first_ip), Some(last_ip)) => {
+                match DHCP::new(nic_lan.clone(), first_ip, last_ip) {
+                    Ok(dhcp) => Some(dhcp),
+                    Err(_) => None,
                 }
             },
-            Err(e) => {
-                println!("Error with DHCP server setup : {}", e);
-                Self {
-                    name: name.clone(),
-                    nic: nic.clone(),
-                    dhcp: None
+            _ => None,
+        };
+        let dhcp_wan: Option<DHCP> = match (dhcp_wan_first_ip, dhcp_wan_last_ip) {
+            (Some(first_ip), Some(last_ip)) => {
+                match DHCP::new(nic_wan.clone(), first_ip, last_ip) {
+                    Ok(dhcp) => Some(dhcp),
+                    Err(_) => None,
                 }
-            }
-        }
-    }
-
-    pub fn status(&self) {
-        println!("ROUTER {} - {} - {}", self.name, self.nic.cidr(), self.nic.mac.to_hex());
-        print!("\tDHCP -> ");
-        match &self.dhcp {
-            Some(dhcp) => {
-                println!(" Enabled : {} > {}", dhcp.first_ip.to_ddn(), dhcp.last_ip.to_ddn());
             },
-            None => {
-                println!("Disabled");
-            }
-        }
+            _ => None,
+        };
+        Self { name, nic_lan, nic_wan, dhcp_lan, dhcp_wan }
     }
 
-    pub fn get_next_dhcp_ip(&mut self, graph: &Graph) -> Result<IP, DhcpError> {
-        let dhcp = match &mut self.dhcp {
+    pub fn get_next_dhcp_ip(&mut self, graph: &Graph, interface: RouterInterface) -> Result<IP, DhcpError> {
+        let dhcp = match interface {
+            RouterInterface::LAN => &mut self.dhcp_lan,
+            RouterInterface::WAN => &mut self.dhcp_wan,
+        };
+        let nic = match interface {
+            RouterInterface::LAN => &self.nic_lan,
+            RouterInterface::WAN => &self.nic_wan,
+        };
+        let dhcp = match dhcp {
             Some(dhcp) => dhcp,
             None => return Err(DhcpError::DisabledDHCP)
         };
@@ -65,7 +87,7 @@ impl Router {
             if ip_candidate.is_greater_than(&dhcp.last_ip) {
                 return Err(DhcpError::NoMoreIPsAvailable);
             }
-            match ping(graph, self.nic.clone(), ip_candidate.clone()) {
+            match ping(graph, nic.clone(), ip_candidate.clone()) {
                 PingStatus::Success => {}
                 _ => {
                     return Ok(ip_candidate.clone());
@@ -79,7 +101,17 @@ impl Router {
     }
 }
 
-pub fn create_router(name: String, graph: &mut Graph) -> Result<(), GraphError> {
-    let router = Router::new(name);
+pub fn create_router( name: String, graph: &mut Graph,
+                      ip_lan: IP, netmask_lan: IP, ip_wan: IP, netmask_wan: IP,
+                      dhcp_lan_first_ip: Option<IP>, dhcp_lan_last_ip: Option<IP>,
+                      dhcp_wan_first_ip: Option<IP>, dhcp_wan_last_ip: Option<IP>) -> Result<(), GraphError> {
+    let router = Router::new(
+        name, ip_lan, netmask_lan, ip_wan, netmask_wan,
+        dhcp_lan_first_ip, dhcp_lan_last_ip, dhcp_wan_first_ip, dhcp_wan_last_ip
+    );
+    match graph.append_internal_router_connection(router.nic_lan.mac.clone(), router.nic_wan.mac.clone()) {
+        Err(e) => return Err(e),
+        _ => {}
+    }
     graph.append_router(router)
 }
