@@ -1,0 +1,8 @@
+debug/
+target/
+**/*.rs.bk
+*.pdb
+#.idea/
+.vscode/
+*.log
+.DS_Store
