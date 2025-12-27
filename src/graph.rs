@@ -499,23 +499,29 @@ impl Graph {
         }
 
         for c in loaded_connections {
-            match connection_with_mac(self,
-                match MAC::from_string(&c.from) {
-                    Some(mac) => mac, None => {
-                        println!("{}Skipping{} connection from {} to {} due to invalid source MAC.", Colors::YELLOW, Colors::RESET, c.from, c.to);
-                        continue;
-                    }
-                },
-                match MAC::from_string(&c.to) {
-                    Some(mac) => mac, None => {
-                        println!("{}Skipping{} connection from {} to {} due to invalid destination MAC.", Colors::YELLOW, Colors::RESET, c.from, c.to);
-                        continue;
-                    }
+            let mac_src = match MAC::from_string(&c.from) {
+                Some(mac) => mac, None => {
+                    println!("{}Skipping{} connection from {} to {} due to invalid source MAC.", Colors::YELLOW, Colors::RESET, c.from, c.to);
+                    continue;
                 }
+            };
+            let mac_dest = match MAC::from_string(&c.to) {
+                Some(mac) => mac, None => {
+                    println!("{}Skipping{} connection from {} to {} due to invalid destination MAC.", Colors::YELLOW, Colors::RESET, c.from, c.to);
+                    continue;
+                }
+            };
+            match connection_with_mac(self,
+                mac_src.clone(),
+                mac_dest.clone()
             ) {
-                true => {connections_loaded += 1;},
+                true => { connections_loaded += 1;},
                 false => {
-                    println!("{}Error{} connecting {} to {} (see above)", Colors::RED, Colors::RESET, c.from, c.to);
+                    println!("Trying to reconnect with reversed order of MACs...");
+                    match connection_with_mac(self, mac_dest.clone(), mac_src.clone()) {
+                        true => { connections_loaded += 1; },
+                        false => println!("{}Error{} connecting {} to {} (see above)", Colors::RED, Colors::RESET, c.from, c.to)
+                    }
                 }
             }
         }

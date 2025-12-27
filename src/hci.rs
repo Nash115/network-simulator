@@ -269,7 +269,10 @@ pub fn connection_interactive(graph: &mut Graph) -> bool {
             return false;
         }
     };
-    connection_with_mac(graph, mac_src, mac_dest)
+    if connection_with_mac(graph, mac_src.clone(), mac_dest.clone()) {
+        return true;
+    }
+    connection_with_mac(graph, mac_dest, mac_src)
 }
 
 pub fn ping_interactive(graph: &Graph) -> bool {
