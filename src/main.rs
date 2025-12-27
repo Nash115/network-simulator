@@ -5,15 +5,13 @@ mod dhcp;
 mod graph;
 mod hci;
 mod ip;
+mod load;
 mod mac;
 mod nic;
 mod router;
 
-use crate::device::create_device;
 use crate::graph::Graph;
 use crate::hci::{menu, MenuOptions};
-use crate::ip::IP;
-use crate::router::create_router;
 
 
 fn main() {
@@ -52,8 +50,14 @@ fn main() {
             },
             MenuOptions::Ping => {
                 hci::ping_interactive(&graph);
-            }
-            _ => {
+            },
+            MenuOptions::Load => {
+                match hci::load_interactive(&mut graph) {
+                    true => println!("Data loaded successfully."),
+                    false => {},
+                }
+            },
+            MenuOptions::Nothing => {
                 wait = false;
                 println!("Invalid option. Please try again.");
             }

@@ -7,7 +7,7 @@ use crate::nic::NIC;
 
 #[derive(Clone)]
 pub struct Router {
-    name: String,
+    pub name: String,
     pub nic_lan: NIC,
     pub nic_wan: NIC,
     pub dhcp_lan: Option<DHCP>,

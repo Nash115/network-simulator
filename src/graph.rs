@@ -1,6 +1,9 @@
+use crate::colors::Colors;
 use crate::device::Device;
+use crate::dhcp::DHCP;
 use crate::dhcp::DhcpError;
 use crate::ip::IP;
+use crate::load::LoadedData;
 use crate::mac::MAC;
 use crate::nic::NIC;
 use crate::router::{Router, RouterInterface};
@@ -334,4 +337,240 @@ impl Graph {
         }
     }
 
+    pub fn load_data(&mut self, loaded_data: LoadedData) {
+        let mut routers_loaded: u32 = 0;
+        let mut devices_loaded: u32 = 0;
+        let mut connections_loaded: u32 = 0;
+        let loaded_routers = match loaded_data.routers {
+            Some(e) => e,
+            _ => {Vec::new()}
+        };
+        let loaded_devices = match loaded_data.devices {
+            Some(e) => e,
+            _ => {Vec::new()}
+        };
+        let loaded_connections = match loaded_data.connections {
+            Some(e) => e,
+            _ => {Vec::new()}
+        };
+
+        for r in loaded_routers {
+            let dhcp_lan_first_ip: Option<IP> = match &r.lan.dhcp {
+                Some(dhcp) => match IP::from_string(dhcp.first_ip.as_str()) {
+                    Some(ip) => Some(ip), None => {
+                        println!("{}Skipping{} DHCP for router {} LAN due to invalid first IP.", Colors::YELLOW, Colors::RESET, r.name);
+                        None
+                    }
+                }, _ => None,
+            };
+            let dhcp_lan_last_ip: Option<IP> = match &r.lan.dhcp {
+                Some(dhcp) => match IP::from_string(dhcp.last_ip.as_str()) {
+                    Some(ip) => Some(ip), None => {
+                        println!("{}Skipping{} DHCP for router {} LAN due to invalid last IP.", Colors::YELLOW, Colors::RESET, r.name);
+                        None
+                    }
+                }, _ => None,
+            };
+            let dhcp_wan_first_ip: Option<IP> = match &r.wan.dhcp {
+                Some(dhcp) => match IP::from_string(dhcp.first_ip.as_str()) {
+                    Some(ip) => Some(ip), None => {
+                        println!("{}Skipping{} DHCP for router {} WAN due to invalid first IP.", Colors::YELLOW, Colors::RESET, r.name);
+                        None
+                    }
+                }, _ => None,
+            };
+            let dhcp_wan_last_ip: Option<IP> = match &r.wan.dhcp {
+                Some(dhcp) => match IP::from_string(dhcp.last_ip.as_str()) {
+                    Some(ip) => Some(ip), None => {
+                        println!("{}Skipping{} DHCP for router {} WAN due to invalid last IP.", Colors::YELLOW, Colors::RESET, r.name);
+                        None
+                    }
+                }, _ => None,
+            };
+            let nic_lan = NIC {
+                mac: match r.lan.mac {
+                    Some(mac_str) => match MAC::from_string(mac_str.as_str()) {
+                        Some(mac) => mac, None => {
+                            println!("{}Skipping{} router {} due to invalid LAN MAC.", Colors::YELLOW, Colors::RESET, r.name);
+                            continue;
+                        }
+                    }, None => {
+                        MAC::new()
+                    }
+                },
+                ip: match IP::from_string(r.lan.ip.as_str()) {
+                    Some(ip) => ip, None => {
+                        println!("{}Skipping{} router {} due to invalid LAN IP.", Colors::YELLOW, Colors::RESET, r.name);
+                        continue;
+                    },
+                },
+                netmask: IP::from_cidr(r.lan.netmask),
+            };
+            let nic_wan = NIC {
+                mac: match r.wan.mac {
+                    Some(mac_str) => match MAC::from_string(mac_str.as_str()) {
+                        Some(mac) => mac, None => {
+                            println!("{}Skipping{} router {} due to invalid WAN MAC.", Colors::YELLOW, Colors::RESET, r.name);
+                            continue;
+                        }
+                    }, None => {
+                        MAC::new()
+                    }
+                },
+                ip: match IP::from_string(r.wan.ip.as_str()) {
+                    Some(ip) => ip, None => {
+                        println!("{}Skipping{} router {} due to invalid WAN IP.", Colors::YELLOW, Colors::RESET, r.name);
+                        continue;
+                    },
+                },
+                netmask: IP::from_cidr(r.wan.netmask),
+            };
+            match self.append_router( Router {
+                name: r.name.clone(),
+                nic_lan: nic_lan.clone(),
+                nic_wan: nic_wan.clone(),
+                dhcp_lan: match (dhcp_lan_first_ip, dhcp_lan_last_ip) {
+                    (Some(first_ip), Some(last_ip)) => match DHCP::new(
+                        nic_lan,
+                        first_ip,
+                        last_ip
+                    ) { Ok(dhcp) => Some(dhcp),
+                        Err(e) => {
+                            println!("{}Skipping{} DHCP for router {} LAN due to error: {}", Colors::YELLOW, Colors::RESET, r.name, e);
+                            None
+                        }
+                    }, _ => None,
+                },
+                dhcp_wan: match (dhcp_wan_first_ip, dhcp_wan_last_ip) {
+                    (Some(first_ip), Some(last_ip)) => match DHCP::new(
+                        nic_wan,
+                        first_ip,
+                        last_ip
+                    ) { Ok(dhcp) => Some(dhcp),
+                        Err(e) => {
+                            println!("{}Skipping{} DHCP for router {} WAN due to error: {}", Colors::YELLOW, Colors::RESET, r.name, e);
+                            None
+                        }
+                    }, _ => None,
+                }
+            }) {
+                Ok(_) => {routers_loaded += 1;},
+                Err(e) => {
+                    println!("{}Error{} adding router {}: {}", Colors::RED, Colors::RESET, r.name, e);
+                }
+            }
+        }
+
+        for d in loaded_devices {
+            match self.append_device( Device {
+                name: d.name.clone(),
+                nic: NIC {
+                    mac: match d.mac {
+                        Some(mac_str) => match MAC::from_string(mac_str.as_str()) {
+                            Some(mac) => mac, None => {
+                                println!("{}Skipping{} device {} due to invalid MAC.", Colors::YELLOW, Colors::RESET, d.name);
+                                continue;
+                            }
+                        }, None => {
+                            MAC::new()
+                        }
+                    },
+                    ip: match d.ip {
+                        Some(ip_str) => match IP::from_string(ip_str.as_str()) {
+                            Some(ip) => ip, None => {
+                                println!("{}Skipping{} device {} due to invalid IP.", Colors::YELLOW, Colors::RESET, d.name);
+                                continue;
+                            }
+                        }, None => {
+                            IP::V4(127, 0, 0, 1)
+                        }
+                    },
+                    netmask: match d.netmask {
+                        Some(cidr) => IP::from_cidr(cidr),
+                        None => IP::from_cidr(8),
+                    },
+                }
+            } ) {
+                Ok(_) => {devices_loaded += 1;},
+                Err(e) => {
+                    println!("{}Error{} adding device {}: {}", Colors::RED, Colors::RESET, d.name, e);
+                }
+            }
+        }
+
+        for c in loaded_connections {
+            match connection_with_mac(self,
+                match MAC::from_string(&c.from) {
+                    Some(mac) => mac, None => {
+                        println!("{}Skipping{} connection from {} to {} due to invalid source MAC.", Colors::YELLOW, Colors::RESET, c.from, c.to);
+                        continue;
+                    }
+                },
+                match MAC::from_string(&c.to) {
+                    Some(mac) => mac, None => {
+                        println!("{}Skipping{} connection from {} to {} due to invalid destination MAC.", Colors::YELLOW, Colors::RESET, c.from, c.to);
+                        continue;
+                    }
+                }
+            ) {
+                true => {connections_loaded += 1;},
+                false => {
+                    println!("{}Error{} connecting {} to {} (see above)", Colors::RED, Colors::RESET, c.from, c.to);
+                }
+            }
+        }
+        println!("{}Loaded{} {} routers, {} devices, and {} connections.", Colors::BLUE, Colors::RESET, routers_loaded, devices_loaded, connections_loaded);
+    }
+
+}
+
+pub fn connection_with_mac(graph: &mut Graph, mac_src: MAC, mac_dest: MAC) -> bool {
+    let mut nic_src = match graph.nic_with_mac(mac_src.clone()) {
+        Some(nic) => nic,
+        None => {
+            println!("Device with MAC address '{}' not found.", mac_src);
+            return false;
+        }
+    };
+    let nic_src_original = nic_src.clone();
+    let nic_dest = match graph.nic_with_mac(mac_dest.clone()) {
+        Some(nic) => nic,
+        None => {
+            println!("Device with MAC address '{}' not found.", mac_dest);
+            return false;
+        }
+    };
+    if !nic_src.same_network(nic_dest.clone()) {
+        if graph.connections(nic_src.mac.clone()).is_empty() {
+            nic_src.set_localhost();
+        }
+        if !nic_src.is_localhost() {
+            println!("Devices are not on the same network and {} could not connect to the network.", nic_src.mac);
+            return false;
+        }
+        match graph.breadth_first_search_and_dhcp_connection(&mut nic_src, &nic_dest) {
+            Ok(ip) => {
+                println!("DHCP attribution succeed : {}", ip);
+                if let Err(e) = graph.update_nic(mac_src.clone(), nic_src.clone()) {
+                    println!("Error updating NIC: {}", e);
+                    return false;
+                }
+            }
+            Err(e) => {
+                println!("Error during DHCP attribution : {}", e);
+                return false;
+            }
+        }
+    }
+    match graph.append_connection(nic_src, nic_dest) {
+        Ok(_) => return true,
+        Err(e) => {
+            println!("Error connecting devices: {}", e);
+            match graph.update_nic(mac_src.clone(), nic_src_original.clone()) {
+                Ok(_) => {},
+                Err(e) => println!("Additionally, error reverting NIC changes: {}", e),
+            }
+        }
+    }
+    return false;
 }

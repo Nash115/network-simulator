@@ -2,8 +2,9 @@ use std::io::{self, Write};
 
 use crate::commands::ping;
 use crate::device::create_device;
-use crate::graph::Graph;
+use crate::graph::{Graph, connection_with_mac};
 use crate::ip::IP;
+use crate::load::load_data;
 use crate::mac::MAC;
 use crate::router::{create_router, RouterInterface};
 
@@ -105,6 +106,7 @@ pub enum MenuOptions {
     ShowAll,
     Connection,
     Ping,
+    Load
 }
 
 pub fn menu() -> MenuOptions {
@@ -114,6 +116,7 @@ pub fn menu() -> MenuOptions {
     println!("3. Show all devices and networks");
     println!("4. Connect two devices");
     println!("5. Ping from a device to an IP");
+    println!("6. Load data from yaml file");
     println!("0. Quit");
     println!("=================================");
     
@@ -132,6 +135,7 @@ pub fn menu() -> MenuOptions {
         3 => return MenuOptions::ShowAll,
         4 => return MenuOptions::Connection,
         5 => return MenuOptions::Ping,
+        6 => return MenuOptions::Load,
         _ => {
             return MenuOptions::Nothing;
         }
@@ -265,54 +269,7 @@ pub fn connection_interactive(graph: &mut Graph) -> bool {
             return false;
         }
     };
-    let mut nic_src = match graph.nic_with_mac(mac_src.clone()) {
-        Some(nic) => nic,
-        None => {
-            println!("Device with MAC address '{}' not found.", mac_src);
-            return false;
-        }
-    };
-    let nic_src_original = nic_src.clone();
-    let nic_dest = match graph.nic_with_mac(mac_dest.clone()) {
-        Some(nic) => nic,
-        None => {
-            println!("Device with MAC address '{}' not found.", mac_dest);
-            return false;
-        }
-    };
-    if !nic_src.same_network(nic_dest.clone()) {
-        if graph.connections(nic_src.mac.clone()).is_empty() {
-            nic_src.set_localhost();
-        }
-        if !nic_src.is_localhost() {
-            println!("Devices are not on the same network and {} could not connect to the network.", nic_src.mac);
-            return false;
-        }
-        match graph.breadth_first_search_and_dhcp_connection(&mut nic_src, &nic_dest) {
-            Ok(ip) => {
-                println!("DHCP attribution succeed : {}", ip);
-                if let Err(e) = graph.update_nic(mac_src.clone(), nic_src.clone()) {
-                    println!("Error updating NIC: {}", e);
-                    return false;
-                }
-            }
-            Err(e) => {
-                println!("Error during DHCP attribution : {}", e);
-                return false;
-            }
-        }
-    }
-    match graph.append_connection(nic_src, nic_dest) {
-        Ok(_) => return true,
-        Err(e) => {
-            println!("Error connecting devices: {}", e);
-            match graph.update_nic(mac_src.clone(), nic_src_original.clone()) {
-                Ok(_) => {},
-                Err(e) => println!("Additionally, error reverting NIC changes: {}", e),
-            }
-        }
-    }
-    return false;
+    connection_with_mac(graph, mac_src, mac_dest)
 }
 
 pub fn ping_interactive(graph: &Graph) -> bool {
@@ -341,4 +298,23 @@ pub fn ping_interactive(graph: &Graph) -> bool {
             return false;
         }
     };
+}
+
+pub fn load_interactive(graph: &mut Graph) -> bool {
+    let file_path = match get_input("Enter the path to the YAML file to load : ") {
+        Ok(name) => name,
+        Err(e) => {
+            println!("Error reading file path: {}", e);
+            return false;
+        }
+    };
+    let data = load_data(&file_path);
+    match data {
+        Ok(data) => graph.load_data(data),
+        Err(e) => {
+            println!("Error loading data: {}", e);
+            return false;
+        }
+    };
+    true
 }
