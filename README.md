@@ -1,14 +1,14 @@
 # network-simulator
 
 <p align="center">
-    <a href="https://github.com/Nash115/network-simulator" alt="Github Repo">
-        <img src="https://img.shields.io/badge/github-repo-blue?logo=github&logoColor=white" />
+    <a href="https://github.com/Nash115/network-simulator">
+        <img src="https://img.shields.io/badge/github-repo-blue?logo=github&logoColor=white" alt="Github Repo"/>
     </a>
-    <a href="https://rust-lang.org" alt="Rust Language">
-        <img src="https://img.shields.io/badge/Rust-orange?logo=Rust&logoColor=white" />
+    <a href="https://rust-lang.org">
+        <img src="https://img.shields.io/badge/Rust-orange?logo=Rust&logoColor=white" alt="Rust Language"/>
     </a>
-    <a href="https://www.docker.com" alt="Docker">
-        <img src="https://img.shields.io/badge/Docker-blue?logo=Docker&logoColor=white" />
+    <a href="https://www.docker.com">
+        <img src="https://img.shields.io/badge/Docker-blue?logo=Docker&logoColor=white" alt="Docker"/>
     </a>
 </p>
 
