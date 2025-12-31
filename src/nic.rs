@@ -10,6 +10,12 @@ pub struct NIC {
     pub mac: MAC
 }
 
+pub enum IpAddressType { 
+    NetworkAddress,
+    BroadcastAddress,
+    HostAddress
+}
+
 impl std::fmt::Display for NIC {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}{}/{}{} - {}", self.ip, Colors::CYAN, self.netmask_u8(), Colors::RESET, self.mac)
@@ -41,6 +47,16 @@ impl NIC {
         return network_address_bin;
     }
 
+    pub fn network_address(&self) -> IP {
+        let network_address_bin: String = self.network_address_bin();
+        let parts: Vec<&str> = network_address_bin.split('.').collect();
+        let mut octets: [u8; 4] = [0; 4];
+        for i in 0..4 {
+            octets[i] = u8::from_str_radix(parts[i], 2).unwrap();
+        }
+        IP::V4(octets[0], octets[1], octets[2], octets[3])
+    }
+
     pub fn netmask_u8(&self) -> u8 {
         let netmask_bin = self.netmask.to_bin_ddn();
         let mut cpt: u8 = 0;
@@ -65,6 +81,25 @@ impl NIC {
 
     pub fn same_network(&self, r2: NIC) -> bool {
         return self.network_address_bin() == r2.network_address_bin();
+    }
+
+    pub fn ip_address_type(&self) -> IpAddressType {
+        let mut next_ip = self.ip.clone();
+        if self.ip == self.network_address() {
+            return IpAddressType::NetworkAddress;
+        }
+        match next_ip.increment() {
+            Ok(_) => {
+                if self.same_network(NIC {ip:next_ip, netmask:self.netmask.clone(), mac:MAC::new()}) {
+                    return IpAddressType::HostAddress;
+                } else {
+                    return IpAddressType::BroadcastAddress;
+                }
+            }
+            Err(_) => {
+                return IpAddressType::BroadcastAddress;
+            }
+        }
     }
 
     pub fn set_localhost(&mut self) {

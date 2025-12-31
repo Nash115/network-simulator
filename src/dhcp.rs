@@ -15,7 +15,9 @@ pub enum DhcpError {
     IPsNotInSameNetwork,
     InvalidIPsRange,
     NoMoreIPsAvailable,
-    NoDHCPServerFound
+    NoDHCPServerFound,
+    ReturnedNetworkAddress,
+    ReturnedBroadcastAddress,
 }
 
 impl std::fmt::Display for DhcpError {
@@ -27,6 +29,8 @@ impl std::fmt::Display for DhcpError {
             DhcpError::InvalidIPsRange => write!(f, "Invalid IPs Range"),
             DhcpError::NoMoreIPsAvailable => write!(f, "No More IPs Available"),
             DhcpError::NoDHCPServerFound => write!(f, "No DHCP Server accessible"),
+            DhcpError::ReturnedNetworkAddress => write!(f, "DHCP Returned Network Address"),
+            DhcpError::ReturnedBroadcastAddress => write!(f, "DHCP Returned Broadcast Address"),
         }
     }
 }

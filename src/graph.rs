@@ -5,7 +5,7 @@ use crate::dhcp::DhcpError;
 use crate::ip::IP;
 use crate::load::LoadedData;
 use crate::mac::MAC;
-use crate::nic::NIC;
+use crate::nic::{NIC,IpAddressType};
 use crate::router::{Router, RouterInterface};
 
 
@@ -240,9 +240,24 @@ impl Graph {
                     let ip_r = self.routers[idx].get_next_dhcp_ip(&tmp_graph, interface);
                     match ip_r {
                         Ok(ip) => {
-                            nic_src.ip = ip.clone();
-                            nic_src.netmask = netmask;
-                            return Ok(ip)
+                            let nic_test = NIC {
+                                mac: nic_src.mac.clone(),
+                                ip: ip.clone(),
+                                netmask: netmask.clone()
+                            };
+                            match nic_test.ip_address_type() {
+                                IpAddressType::HostAddress => {
+                                    nic_src.ip = ip.clone();
+                                    nic_src.netmask = netmask;
+                                    return Ok(ip);
+                                },
+                                IpAddressType::NetworkAddress => {
+                                    last_dhcp_error = DhcpError::ReturnedNetworkAddress;
+                                },
+                                IpAddressType::BroadcastAddress => {
+                                    last_dhcp_error = DhcpError::ReturnedBroadcastAddress;
+                                }
+                            }
                         },
                         Err(e) => {
                             last_dhcp_error = e;
