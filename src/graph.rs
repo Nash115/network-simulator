@@ -192,8 +192,8 @@ impl Graph {
     }
 
     pub fn breadth_first_search_ip(&self, start:MAC, ip: IP) -> bool {
-        let accessibles = self.breadth_first_search(start);
-        for mac in accessibles {
+        let accessible = self.breadth_first_search(start);
+        for mac in accessible {
             let t = self.node_type_with_mac(mac.clone());
             match t {
                 Some(NodeType::Device) => {
@@ -221,8 +221,8 @@ impl Graph {
 
     pub fn breadth_first_search_and_dhcp_connection(&mut self, nic_src:&mut NIC, nic_dest: &NIC) -> Result<IP, DhcpError> {
         let mut last_dhcp_error: DhcpError = DhcpError::NoDHCPServerFound;
-        let accessibles = self.breadth_first_search(nic_dest.mac.clone());
-        for mac in accessibles {
+        let accessible = self.breadth_first_search(nic_dest.mac.clone());
+        for mac in accessible {
             let router_idx = self.routers.iter().position(|r| (r.nic_lan.mac == mac) || (r.nic_wan.mac == mac));
             if let Some(idx) = router_idx {
                 let interface: RouterInterface = if self.routers[idx].nic_lan.mac == mac {
@@ -300,7 +300,7 @@ impl Graph {
     }
 
     pub fn nic_with_mac(&self, mac: MAC) -> Option<NIC> {
-        return match self.node_type_with_mac(mac.clone()) {
+        match self.node_type_with_mac(mac.clone()) {
             Some(NodeType::Router) => {
                 let router = self.search_router_with_mac(mac.clone());
                 match router {
@@ -321,7 +321,7 @@ impl Graph {
                 }
             },
             None => None
-        };
+        }
     }
 
     pub fn update_nic(&mut self, mac: MAC, new_nic: NIC) -> Result<(), GraphError> {
@@ -593,5 +593,5 @@ pub fn connection_with_mac(graph: &mut Graph, mac_src: MAC, mac_dest: MAC) -> bo
             }
         }
     }
-    return false;
+    false
 }

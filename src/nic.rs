@@ -88,18 +88,18 @@ impl NIC {
         if self.ip == self.network_address() {
             return IpAddressType::NetworkAddress;
         }
-        match next_ip.increment() {
+        return match next_ip.increment() {
             Ok(_) => {
                 if self.same_network(NIC {ip:next_ip, netmask:self.netmask.clone(), mac:MAC::new()}) {
-                    return IpAddressType::HostAddress;
+                    IpAddressType::HostAddress
                 } else {
-                    return IpAddressType::BroadcastAddress;
+                    IpAddressType::BroadcastAddress
                 }
             }
             Err(_) => {
-                return IpAddressType::BroadcastAddress;
+                IpAddressType::BroadcastAddress
             }
-        }
+        };
     }
 
     pub fn set_localhost(&mut self) {
